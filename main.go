@@ -9,13 +9,17 @@ import (
 )
 
 type Server struct {
-	conns map[*websocket.Conn]bool
+	conns  map[*websocket.Conn]bool
+	length int
 }
 
 func (s *Server) connection(ws *websocket.Conn) {
-	fmt.Println("New connection", ws.RemoteAddr())
+	s.length++
 	s.conns[ws] = true
-	s.BroadCastMsg([]byte("New user joined" + ws.RemoteAddr().String()))
+	userMsg := fmt.Sprintf("New user joined: #%d", s.length)
+	fmt.Println(userMsg)
+
+	s.BroadCastMsg([]byte(userMsg))
 	s.ReadMsg(ws)
 }
 
@@ -30,6 +34,7 @@ func (s *Server) ReadMsg(ws *websocket.Conn) {
 			continue
 		}
 		msg := buf[:n]
+
 		fmt.Println("Received message from", ws.RemoteAddr(), string(msg))
 		s.BroadCastMsg(msg)
 	}
@@ -59,7 +64,7 @@ func NewServer() *Server {
 func main() {
 	server := NewServer()
 
-	http.Handle("/socket.io", websocket.Handler(server.connection))
+	http.Handle("/ws", websocket.Handler(server.connection))
 	http.ListenAndServe(":8000", nil)
 
 }
