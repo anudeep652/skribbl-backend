@@ -1,62 +1,65 @@
 package main
 
 import (
-	"log"
+	"fmt"
+	"io"
 	"net/http"
 
-	"github.com/gin-gonic/gin"
-
-	socketio "github.com/googollee/go-socket.io"
+	"golang.org/x/net/websocket"
 )
 
-func main() {
-	router := gin.New()
+type Server struct {
+	conns map[*websocket.Conn]bool
+}
 
-	server := socketio.NewServer(nil)
-	go func() {
-		if err := server.Serve(); err != nil {
-			log.Fatalf("socketio listen error: %s\n", err)
+func (s *Server) connection(ws *websocket.Conn) {
+	fmt.Println("New connection", ws.RemoteAddr())
+	s.conns[ws] = true
+	s.BroadCastMsg([]byte("New user joined" + ws.RemoteAddr().String()))
+	s.ReadMsg(ws)
+}
+
+func (s *Server) ReadMsg(ws *websocket.Conn) {
+	buf := make([]byte, 1024)
+	for {
+		n, err := ws.Read(buf)
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			continue
 		}
-	}()
-
-	server.OnConnect("/", func(s socketio.Conn) error {
-		s.SetContext("")
-		log.Println("connected:", s.ID())
-		return nil
-	})
-
-	server.OnEvent("/", "notice", func(s socketio.Conn, msg string) {
-		log.Println("notice:", msg)
-		s.Emit("reply", "have "+msg)
-	})
-
-	server.OnEvent("/chat", "msg", func(s socketio.Conn, msg string) string {
-		s.SetContext(msg)
-		return "recv " + msg
-	})
-
-	server.OnEvent("/", "bye", func(s socketio.Conn) string {
-		last := s.Context().(string)
-		s.Emit("bye", last)
-		s.Close()
-		return last
-	})
-
-	server.OnError("/", func(s socketio.Conn, e error) {
-		log.Println("meet error:", e)
-	})
-
-	server.OnDisconnect("/", func(s socketio.Conn, reason string) {
-		log.Println("closed", reason)
-	})
-
-	defer server.Close()
-
-	router.GET("/socket.io/*any", gin.WrapH(server))
-	router.POST("/socket.io/*any", gin.WrapH(server))
-	router.StaticFS("/public", http.Dir("../asset"))
-
-	if err := router.Run(":8000"); err != nil {
-		log.Fatal("failed run app: ", err)
+		msg := buf[:n]
+		fmt.Println("Received message from", ws.RemoteAddr(), string(msg))
+		s.BroadCastMsg(msg)
 	}
+
+}
+
+func (s *Server) BroadCastMsg(msg []byte) {
+	for ws := range s.conns {
+
+		go func(ws *websocket.Conn) {
+
+			if _, err := ws.Write(msg); err != nil {
+				fmt.Println("Error sending message to", ws.RemoteAddr(), err.Error())
+				delete(s.conns, ws)
+				return
+			}
+		}(ws)
+	}
+}
+
+func NewServer() *Server {
+	return &Server{
+		conns: make(map[*websocket.Conn]bool),
+	}
+}
+
+func main() {
+	server := NewServer()
+
+	http.Handle("/socket.io", websocket.Handler(server.connection))
+	http.ListenAndServe(":8000", nil)
+
 }
