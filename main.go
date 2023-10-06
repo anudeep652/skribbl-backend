@@ -3,68 +3,53 @@ package main
 import (
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"os/exec"
 
-	"golang.org/x/net/websocket"
+	server "github.com/anudeep652/skribbl-clone-backend/websockets"
 )
 
-type Server struct {
-	conns  map[*websocket.Conn]bool
-	length int
-}
-
-func (s *Server) connection(ws *websocket.Conn) {
-	s.length++
-	s.conns[ws] = true
-	userMsg := fmt.Sprintf("New user joined: #%d", s.length)
-	fmt.Println(userMsg)
-
-	s.BroadCastMsg([]byte(userMsg))
-	s.ReadMsg(ws)
-}
-
-func (s *Server) ReadMsg(ws *websocket.Conn) {
-	buf := make([]byte, 1024)
-	for {
-		n, err := ws.Read(buf)
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			continue
-		}
-		msg := buf[:n]
-
-		fmt.Println("Received message from", ws.RemoteAddr(), string(msg))
-		s.BroadCastMsg(msg)
+func generateRandomID() []byte {
+	id, err := exec.Command("uuidgen").Output()
+	if err != nil {
+		log.Fatal(err)
 	}
-
+	return id
 }
 
-func (s *Server) BroadCastMsg(msg []byte) {
-	for ws := range s.conns {
-
-		go func(ws *websocket.Conn) {
-
-			if _, err := ws.Write(msg); err != nil {
-				fmt.Println("Error sending message to", ws.RemoteAddr(), err.Error())
-				delete(s.conns, ws)
-				return
-			}
-		}(ws)
+func readFromBody(r *http.Request) string {
+	resp, err := io.ReadAll(r.Body)
+	defer r.Body.Close()
+	if err != nil {
+		log.Fatal(err)
 	}
-}
-
-func NewServer() *Server {
-	return &Server{
-		conns: make(map[*websocket.Conn]bool),
-	}
+	return string(resp)
 }
 
 func main() {
-	server := NewServer()
 
-	http.Handle("/ws", websocket.Handler(server.connection))
-	http.ListenAndServe(":8000", nil)
+	s := server.NewServer()
+	go s.Run()
+	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		client := s.ServeHTTP(w, r)
+		fmt.Println(client)
 
+	})
+	http.HandleFunc("/new-room", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Println(readFromBody(r))
+		// TODO : Read roomId from body and create a new room with that id, not with random id
+		roomId := generateRandomID()
+		s.NewRoom(roomId)
+	})
+
+	http.HandleFunc("/join-room", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Println(readFromBody(r))
+		// TODO : Read roomId from body and join the room with that id
+
+	})
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("Hello World"))
+	})
+	log.Fatal(http.ListenAndServe(":8000", nil))
 }
