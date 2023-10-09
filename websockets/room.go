@@ -1,9 +1,11 @@
 package websockets
 
+import "fmt"
+
 type Room struct {
 
 	// unique id for every room
-	id []byte
+	id string
 
 	// clients holds all current clients in this room.
 	clients map[*Client]bool
@@ -18,7 +20,7 @@ type Room struct {
 	forward chan []byte
 }
 
-func newRoom(id []byte) *Room {
+func NewRoom(id string) *Room {
 
 	return &Room{
 		id:      id,
@@ -38,6 +40,7 @@ func (r *Room) run() {
 			delete(r.clients, client)
 			close(client.Receive)
 		case msg := <-r.forward:
+			fmt.Print("in room run")
 			for client := range r.clients {
 				client.Receive <- msg
 			}

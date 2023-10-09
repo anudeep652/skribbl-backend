@@ -1,58 +1,74 @@
 package websockets
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 
+	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 )
 
 type Server struct {
 
 	// rooms holds all current rooms.
-	rooms map[*Room]bool
+	Rooms map[*Room]bool
 
 	// close is a channel for rooms wishing to close.
-	close chan *Room
+	Close chan *Room
 
 	// newRoom is a channel for rooms wishing to be created.
-	newRoom chan *Room
+	Room chan *Room
 }
 
 func NewServer() *Server {
 	return &Server{
-		rooms:   make(map[*Room]bool),
-		close:   make(chan *Room),
-		newRoom: make(chan *Room),
+		Rooms: make(map[*Room]bool),
+		Close: make(chan *Room),
+		Room:  make(chan *Room),
 	}
 }
 
 func (s *Server) Run() {
 	for {
 		select {
-		case room := <-s.newRoom:
-			s.rooms[room] = true
-			go room.run()
-		case room := <-s.close:
+		case room := <-s.Room:
+			s.Rooms[room] = true
+		case room := <-s.Close:
 			for cl := range room.clients {
 				room.leave <- cl
 			}
-			s.rooms[room] = false
+			s.Rooms[room] = false
 		}
 	}
 }
 
-func (s *Server) NewRoom(roomId []byte) {
-	room := newRoom(roomId)
-	s.newRoom <- room
+func (s *Server) CreateRoom(roomId string) *Room {
+	room := NewRoom(roomId)
+	s.Room <- room
+	return room
 }
 
-func (s *Server) JoinRoom(roomId []byte, client *Client) {
-	for room := range s.rooms {
-		if string(room.id) == string(roomId) {
+func (s *Server) JoinRoom(roomId string, client *Client) {
+	fmt.Println("in join room")
+	fmt.Println(roomId)
+	for room := range s.Rooms {
+		// room exists so just join the client
+		if room.id == roomId {
+			fmt.Println("joining room")
+			client.Room = room
 			room.join <- client
+			return
 		}
 	}
+	// if room doesn't exist create room and join the client
+	room := s.CreateRoom(roomId)
+	go room.run()
+	client.Room = room
+	room.join <- client
+	fmt.Println(room)
+	fmt.Println(s.Rooms)
+
 }
 
 const (
@@ -62,10 +78,10 @@ const (
 
 var upgrader = &websocket.Upgrader{ReadBufferSize: socketBufferSize, WriteBufferSize: socketBufferSize}
 
-func (r *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) *Client {
+func (r *Server) ServeHTTP(ctx *gin.Context) *Client {
 	// TODO : Check only trusted origins
 	upgrader.CheckOrigin = func(r *http.Request) bool { return true }
-	socket, err := upgrader.Upgrade(w, req, nil)
+	socket, err := upgrader.Upgrade(ctx.Writer, ctx.Request, nil)
 	if err != nil {
 		log.Fatal("ServeHTTP:", err)
 		return nil
@@ -76,6 +92,7 @@ func (r *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) *Client {
 		Receive: make(chan []byte, messageBufferSize),
 	}
 	go client.Read()
+	go client.Write()
 
 	// fmt.Println("New client: ", client, socket)
 
