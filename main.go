@@ -8,6 +8,7 @@ import (
 	"os/exec"
 
 	server "github.com/anudeep652/skribbl-clone-backend/websockets"
+	"github.com/gin-gonic/gin"
 )
 
 func generateRandomID() []byte {
@@ -31,25 +32,17 @@ func main() {
 
 	s := server.NewServer()
 	go s.Run()
-	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		client := s.ServeHTTP(w, r)
-		fmt.Println(client)
 
-	})
-	http.HandleFunc("/new-room", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Println(readFromBody(r))
-		// TODO : Read roomId from body and create a new room with that id, not with random id
-		roomId := generateRandomID()
-		s.NewRoom(roomId)
+	r := gin.Default()
+
+	r.GET("/join-room/:roomId", func(ctx *gin.Context) {
+		roomId := ctx.Params.ByName("roomId")
+		fmt.Println(roomId)
+		client := s.ServeHTTP(ctx)
+
+		s.JoinRoom(roomId, client)
+		ctx.JSON(http.StatusOK, gin.H{})
 	})
 
-	http.HandleFunc("/join-room", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Println(readFromBody(r))
-		// TODO : Read roomId from body and join the room with that id
-
-	})
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("Hello World"))
-	})
-	log.Fatal(http.ListenAndServe(":8000", nil))
+	r.Run(":8000")
 }

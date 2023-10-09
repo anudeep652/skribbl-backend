@@ -7,7 +7,6 @@ import (
 )
 
 // client represents a single chatting user.
-
 type Client struct {
 
 	// socket is the web socket for this client.
@@ -29,12 +28,15 @@ func (c *Client) Read() {
 			return
 		}
 		fmt.Println(string(msg))
+		c.Room.forward <- msg
 	}
 }
 
 func (c *Client) Write() {
+	fmt.Println("in write")
 	defer c.Socket.Close()
 	for msg := range c.Receive {
+		fmt.Println("Sending message to client")
 		err := c.Socket.WriteMessage(websocket.TextMessage, msg)
 		if err != nil {
 			return
