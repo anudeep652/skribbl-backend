@@ -29,6 +29,16 @@ func NewServer() *Server {
 	}
 }
 
+func (s *Server) GetRoom(roomId string) (map[*Client]bool, error) {
+	for room := range s.Rooms {
+		if room.id == roomId {
+			return room.clients, nil
+		}
+	}
+	return nil, nil
+
+}
+
 func (s *Server) Run() {
 	for {
 		select {
@@ -49,16 +59,22 @@ func (s *Server) CreateRoom(roomId string) *Room {
 	return room
 }
 
-func (s *Server) JoinRoom(roomId string, client *Client) {
+func (s *Server) JoinRoom(roomId string, client *Client) error {
 	fmt.Println("in join room")
 	fmt.Println(roomId)
 	for room := range s.Rooms {
 		// room exists so just join the client
 		if room.id == roomId {
 			fmt.Println("joining room")
+			for cl := range room.clients {
+				if cl.UserId == client.UserId {
+					fmt.Println("user already exists")
+					return fmt.Errorf("user already exists")
+				}
+			}
 			client.Room = room
 			room.join <- client
-			return
+			return nil
 		}
 	}
 	// if room doesn't exist create room and join the client
@@ -68,6 +84,7 @@ func (s *Server) JoinRoom(roomId string, client *Client) {
 	room.join <- client
 	fmt.Println(room)
 	fmt.Println(s.Rooms)
+	return nil
 
 }
 
@@ -78,25 +95,29 @@ const (
 
 var upgrader = &websocket.Upgrader{ReadBufferSize: socketBufferSize, WriteBufferSize: socketBufferSize}
 
-func (r *Server) ServeHTTP(ctx *gin.Context) *Client {
+func (r *Server) ServeHTTP(ctx *gin.Context, userId string) (*Client, error) {
+	if userId == "undefined" {
+		return nil, fmt.Errorf("user id is undefined")
+	}
 	// TODO : Check only trusted origins
 	upgrader.CheckOrigin = func(r *http.Request) bool { return true }
 	socket, err := upgrader.Upgrade(ctx.Writer, ctx.Request, nil)
 	if err != nil {
 		log.Fatal("ServeHTTP:", err)
-		return nil
+		return nil, err
 	}
 
 	client := &Client{
 		Socket:  socket,
-		Receive: make(chan []byte, messageBufferSize),
+		Receive: make(chan string, messageBufferSize),
+		UserId:  userId,
 	}
 	go client.Read()
 	go client.Write()
 
 	// fmt.Println("New client: ", client, socket)
 
-	return client
+	return client, nil
 	// fmt.Println(client)
 
 	// r.join <- client

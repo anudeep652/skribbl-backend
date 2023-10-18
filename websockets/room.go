@@ -2,6 +2,11 @@ package websockets
 
 import "fmt"
 
+type Event struct {
+	Name string
+	Msg  string
+}
+
 type Room struct {
 
 	// unique id for every room
@@ -17,14 +22,14 @@ type Room struct {
 	leave chan *Client
 
 	// forward is a channel that holds incoming messages that should be forwarded to the other clients.
-	forward chan []byte
+	Forward chan string
 }
 
 func NewRoom(id string) *Room {
 
 	return &Room{
 		id:      id,
-		forward: make(chan []byte),
+		Forward: make(chan string),
 		join:    make(chan *Client),
 		leave:   make(chan *Client),
 		clients: make(map[*Client]bool),
@@ -39,7 +44,7 @@ func (r *Room) run() {
 		case client := <-r.leave:
 			delete(r.clients, client)
 			close(client.Receive)
-		case msg := <-r.forward:
+		case msg := <-r.Forward:
 			fmt.Print("in room run")
 			for client := range r.clients {
 				client.Receive <- msg
